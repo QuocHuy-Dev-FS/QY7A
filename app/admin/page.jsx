@@ -146,8 +146,8 @@ export default function AdminDashboardPage() {
             </p>
           </div>
 
-          <div className="h-72 sm:h-80 w-full my-3">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-72 sm:h-80 w-full my-3 min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
               <RadarChart data={stats.radarData} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
                 <PolarGrid stroke="#e2e8f0" />
                 <PolarAngleAxis dataKey="subject" tick={{ fill: "#334155", fontSize: 11, fontWeight: "bold" }} />
@@ -197,8 +197,8 @@ export default function AdminDashboardPage() {
             </p>
           </div>
 
-          <div className="h-72 sm:h-80 w-full my-3">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-72 sm:h-80 w-full my-3 min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
               <BarChart
                 data={stats.departmentStats.filter((d) => d.count > 0).slice(0, 7)}
                 layout="vertical"

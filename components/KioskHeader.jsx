@@ -9,18 +9,17 @@ export default function KioskHeader() {
   const pathname = usePathname();
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Do not render KioskHeader on Admin routes
-  if (pathname?.startsWith("/admin")) {
-    return null;
-  }
+  const isAdmin = Boolean(pathname?.startsWith("/admin"));
 
   useEffect(() => {
+    if (isAdmin) return;
+
     const handleFullscreenChange = () => {
       setIsFullscreen(Boolean(document.fullscreenElement));
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, []);
+  }, [isAdmin]);
 
   const toggleFullscreen = async () => {
     try {
@@ -33,6 +32,11 @@ export default function KioskHeader() {
       // Browser permission restriction fallback
     }
   };
+
+  // Do not render KioskHeader on Admin routes (safe return after all hooks are called)
+  if (isAdmin) {
+    return null;
+  }
 
   return (
     <header className="sticky top-0 z-50 w-full bg-white border-b border-slate-200/90 shadow-sm select-none">

@@ -35,7 +35,7 @@ export default function KioskIdleTimer() {
         setSecondsRemaining(COUNTDOWN_SECONDS);
       }, IDLE_TIMEOUT_MS);
     }
-  }, [isHomePage]);
+  }, [isHomePage, isAdmin]);
 
   // Handle countdown when warning is active
   useEffect(() => {
