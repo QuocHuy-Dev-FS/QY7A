@@ -26,14 +26,18 @@ function clearSessionCookie(response) {
 }
 
 export async function GET(request) {
-  const cookieHeader = request.headers.get("cookie") || "";
+  const cookieValue =
+    request?.cookies?.get?.(ADMIN_SESSION_COOKIE)?.value ||
+    (() => {
+      const cookieHeader = request?.headers?.get?.("cookie") || "";
+      const cookie = cookieHeader
+        .split(";")
+        .map((part) => part.trim())
+        .find((part) => part.startsWith(`${ADMIN_SESSION_COOKIE}=`));
+      return cookie ? cookie.slice(ADMIN_SESSION_COOKIE.length + 1) : null;
+    })();
 
-  const cookie = cookieHeader
-    .split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${ADMIN_SESSION_COOKIE}=`));
-
-  if (!cookie) {
+  if (!cookieValue) {
     return createResponse(
       { success: false, authenticated: false },
       401
@@ -43,9 +47,7 @@ export async function GET(request) {
   let accessToken;
 
   try {
-    accessToken = decodeURIComponent(
-      cookie.slice(ADMIN_SESSION_COOKIE.length + 1)
-    );
+    accessToken = decodeURIComponent(cookieValue);
   } catch {
     return clearSessionCookie(
       createResponse(

@@ -62,7 +62,7 @@ export default function AdminLoginPage() {
       const result = await response.json().catch(() => null);
 
       if (!response.ok || result?.authenticated !== true) {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut().catch(() => {});
 
         setError(
           result?.message ||
@@ -74,9 +74,16 @@ export default function AdminLoginPage() {
 
       router.replace("/admin");
       router.refresh();
-    } catch {
+    } catch (err) {
+      console.error("Admin login error:", err);
+      const isConfigError =
+        err instanceof Error &&
+        (err.message.includes("Thiếu cấu hình") ||
+          err.message.includes("Supabase URL"));
       setError(
-        "Không thể kết nối hệ thống đăng nhập. Vui lòng thử lại."
+        isConfigError
+          ? "Lỗi cấu hình hệ thống: Chưa thiết lập biến môi trường Supabase trên Vercel. Vui lòng liên hệ quản trị viên."
+          : "Không thể kết nối hệ thống đăng nhập. Vui lòng thử lại."
       );
     } finally {
       setLoading(false);
