@@ -385,6 +385,13 @@ export async function POST(request) {
       );
     }
 
+    const csatPercent = Math.round(
+      ((scores.c1_access + scores.c2_transparency + scores.c3_facilities +
+        scores.c4_attitude + scores.c5_outcome) / 25.0) * 100
+    );
+    const npsCategory =
+      npsScore >= 9 ? "Promoter" : npsScore >= 7 ? "Passive" : "Detractor";
+
     const { data: inserted, error: insertError } = await supabase
       .from("feedback")
       .insert({
@@ -398,7 +405,9 @@ export async function POST(request) {
         c4_attitude: scores.c4_attitude,
         c5_outcome: scores.c5_outcome,
 
+        csat_percent: csatPercent,
         nps_score: npsScore,
+        nps_category: npsCategory,
         comment: trimmedComment,
         urgent_feedback: trimmedUrgentFeedback,
         status: "pending",

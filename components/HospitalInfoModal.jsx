@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   Building2,
   Clock,
@@ -14,14 +15,44 @@ import {
 import { HOSPITAL_INFO, DEPARTMENTS } from "@/lib/hospitalData";
 
 export default function HospitalInfoModal({ isOpen, onClose }) {
-  if (!isOpen) return null;
+  const [mounted, setMounted] = useState(false);
+  const [closing, setClosing] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setMounted(true); // eslint-disable-line react-hooks/set-state-in-effect
+      setClosing(false);
+    } else if (mounted) {
+      setClosing(true);
+      const t = setTimeout(() => {
+        setMounted(false);
+        setClosing(false);
+      }, 180);
+      return () => clearTimeout(t);
+    }
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!mounted) return null;
+
+  const handleClose = () => {
+    setClosing(true);
+    setTimeout(() => {
+      setMounted(false);
+      setClosing(false);
+      onClose();
+    }, 180);
+  };
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="hospital-modal-title"
-      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200"
+      className={`fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md ${
+        closing
+          ? "animate-out fade-out duration-150"
+          : "animate-in fade-in duration-200"
+      }`}
     >
       <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col rounded-3xl bg-white shadow-2xl border border-blue-200/50 overflow-hidden">
         {/* Modal Header */}
@@ -53,7 +84,7 @@ export default function HospitalInfoModal({ isOpen, onClose }) {
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="Đóng cửa sổ thông tin"
             className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-white hover:bg-white/20 active:scale-95 transition focus:outline-none focus:ring-2 focus:ring-cyan-400"
           >
@@ -183,7 +214,7 @@ export default function HospitalInfoModal({ isOpen, onClose }) {
           </p>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="px-6 py-2.5 rounded-xl bg-[#09264b] hover:bg-[#123d68] text-white text-sm font-bold shadow transition active:scale-95"
           >
             Đóng cửa sổ

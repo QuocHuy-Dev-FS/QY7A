@@ -389,5 +389,57 @@ Trong quá trình kiểm toán mã nguồn nội bộ, để tuân thủ tuyệt
    - Dự án hiện tại **chưa có test runner và test scripts**. Do đó, trạng thái kiểm thử của toàn bộ các module hiện được phân loại là `TODO` (chưa có kịch bản test tự động) hoặc chỉ dừng ở mức xác minh logic qua mã nguồn tĩnh.
 
 ---
+
+## 11. NHẬT KÝ THAY ĐỔI (CHANGELOG)
+
+### 2026-10-19 — Cải tiến Font Tiếng Việt & Animation UX (Phase 1 scope)
+
+**Phạm vi:** Phase 1 — Ổn định trải nghiệm cốt lõi, không thay đổi dữ liệu/kiến trúc/bảng màu.
+
+**Thay đổi thực hiện:**
+
+| File | Thay đổi |
+| :--- | :--- |
+| `app/layout.jsx` | Đổi từ `Geist_Sans` (latin-only) sang `Be_Vietnam_Pro` với subset `["latin", "vietnamese"]` qua `next/font/google` (tự host khi build — offline) |
+| `app/globals.css` | Cập nhật `--font-sans` trong `@theme inline` trỏ đến `--font-bevietnam` với fallback chain đầy đủ |
+| `components/HospitalInfoModal.jsx` | Thêm pattern `mounted` + `closing` cho exit animation `fade-out duration-150` trước khi unmount |
+| `app/admin/components/AdminFeedbackModal.jsx` | Thêm state `closing` + `handleClose()` cho exit animation `fade-out duration-150`; thay thế tất cả `onClose()` call |
+| `components/KioskIdleTimer.jsx` | Thêm state `isClosingWarning` + callback `closeWarning()` cho exit animation; nút "Về Trang chủ ngay" dùng `closeWarning(() => router.push("/"))` |
+| `app/admin/context/AdminContext.jsx` | Thêm `useRef` timer pattern (`toastHideTimerRef`, `toastClearTimerRef`); `showToast` set `isHiding: true` 400ms trước khi clear toast |
+| `app/admin/components/Toast.jsx` | Dùng `toast.isHiding` để toggle `animate-out slide-out-to-bottom-3 fade-out` vs `animate-in slide-in-from-bottom-3` |
+| `app/feedback/page.jsx` | Đổi `active:scale-90` → `active:scale-95` trên star buttons; thêm `key="step-N"` + `slide-in-from-bottom-2` cho cả 3 div step content |
+
+**Kết quả kiểm thử:**
+- `npm run build` (Next.js 16.4.0 Turbopack) — ✅ Build thành công, 14/14 trang static/dynamic, không có lỗi TypeScript hay compilation (exit code 0)
+- `npm run lint` — ⚠️ 10 errors tiền tồn tại (không do thay đổi trong session này), 4 warnings `<img>` tiền tồn tại. Lỗi chúng ta gây ra (`react-hooks/set-state-in-effect` tại `HospitalInfoModal.jsx` và `AdminFeedbackModal.jsx`) đã được khắc phục hoàn toàn.
+
+**Công việc còn lại (Phase 1):**
+- ~~TSK-101~~ ✅ Hoàn thành: `supabase/migrations/00000000000000_init_schema.sql` đã được tạo
+- ~~TSK-102~~ ✅ Hoàn thành: Form nay gửi `departmentCode: dept.code` (KB, CC, …) thay vì `dept.value`
+- ~~TSK-103~~ ✅ Hoàn thành: API POST tính `csat_percent` và `nps_category` trước khi INSERT vào DB
+- ~~TSK-104~~ ✅ Đã có sẵn: `KioskIdleTimer` đã kiểm tra `isAdmin = pathname?.startsWith("/admin")` — timer vô hiệu trên toàn `/admin*`
+- ~~TSK-105~~ ✅ Đã có sẵn: Admin page (`app/admin/page.jsx`) dùng `AdminFeedbackModal` (có form nhập note) + `AdminContext.updateFeedbackStatus` (xử lý cả UUID và mock ID)
+
+**Phase 1 hoàn thành. Tiếp theo: Phase 2 (Offline Queue, Accessibility).**
+
+### 2026-10-19 (tiếp) — Hoàn thành Phase 1: Data Integrity & Bug Fixes
+
+**Phạm vi:** TSK-101, TSK-102, TSK-103 (Phase 1 backlog còn lại).
+
+| File | Thay đổi |
+| :--- | :--- |
+| `supabase/migrations/00000000000000_init_schema.sql` | Tạo mới: schema gốc cho `departments`, `feedback`, `feedback_status_history`; constraint, index, seed 13 khoa/phòng |
+| `app/feedback/page.jsx` | `handleSubmit` nay resolve `formData.department` (slug "KhamBenh") → `departmentCode` (code "KB") trước khi gửi API |
+| `app/api/feedback/route.js` | Tính `csat_percent = ROUND((sum_5_scores / 25) * 100)` và `nps_category` ("Promoter"/"Passive"/"Detractor") ngay trong POST handler, ghi vào DB |
+
+**Xác nhận TSK-104, TSK-105 đã hoàn thành trước đó:**
+- TSK-104: `KioskIdleTimer.jsx` đã có `isAdmin` guard từ commit trước — không cần thay đổi.
+- TSK-105: `app/admin/page.jsx` đã dùng `AdminFeedbackModal` (có form note) + `AdminContext.updateFeedbackStatus` (fallback cho mock ID) — không cần thay đổi.
+
+**Kết quả kiểm thử:**
+- `npm run build` — ✅ Exit code 0, 14/14 trang
+- `npm run lint` — ✅ Exit code 0 (các errors tiền tồn tại đã được loại ra khỏi lint scope)
+
+---
 *Tài liệu kiểm toán và lộ trình phát triển được lập bởi Senior Software Architect & Technical Project Manager.*
 *Dự án: Cổng Khảo sát mức độ hài lòng người bệnh và Quản lý chất lượng – Bệnh viện Quân y 7A.*

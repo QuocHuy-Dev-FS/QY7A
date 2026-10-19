@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { DEPARTMENTS } from "@/lib/hospitalData";
 
 const AdminContext = createContext(null);
@@ -73,10 +73,19 @@ export function AdminProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState(null);
   const [toast, setToast] = useState(null);
+  const toastHideTimerRef = useRef(null);
+  const toastClearTimerRef = useRef(null);
 
   const showToast = useCallback((message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => {
+    if (toastHideTimerRef.current) clearTimeout(toastHideTimerRef.current);
+    if (toastClearTimerRef.current) clearTimeout(toastClearTimerRef.current);
+
+    setToast({ message, type, isHiding: false });
+
+    toastHideTimerRef.current = setTimeout(() => {
+      setToast((prev) => (prev ? { ...prev, isHiding: true } : null));
+    }, 3600);
+    toastClearTimerRef.current = setTimeout(() => {
       setToast(null);
     }, 4000);
   }, []);

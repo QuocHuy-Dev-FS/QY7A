@@ -23,8 +23,17 @@ export default function AdminFeedbackModal({ feedback, onClose }) {
   const [status, setStatus] = useState(feedback?.status || "pending");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [closing, setClosing] = useState(false);
 
   if (!feedback) return null;
+
+  const handleClose = () => {
+    setClosing(true);
+    setTimeout(() => {
+      setClosing(false);
+      onClose();
+    }, 150);
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -32,7 +41,7 @@ export default function AdminFeedbackModal({ feedback, onClose }) {
     const res = await updateFeedbackStatus(feedback.id, status, note);
     setSaving(false);
     if (res?.success) {
-      onClose();
+      handleClose();
     }
   };
 
@@ -49,7 +58,9 @@ export default function AdminFeedbackModal({ feedback, onClose }) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="feedback-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-150"
+      className={`fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-xs ${
+        closing ? "animate-out fade-out duration-150" : "animate-in fade-in duration-150"
+      }`}
     >
       <div className="relative w-full max-w-3xl max-h-[92vh] flex flex-col rounded-xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
         {/* Modal Header */}
@@ -81,7 +92,7 @@ export default function AdminFeedbackModal({ feedback, onClose }) {
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="Đóng cửa sổ"
             className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200/80 text-slate-600 hover:text-slate-900 hover:bg-slate-300 transition active:scale-95"
           >
@@ -260,7 +271,7 @@ export default function AdminFeedbackModal({ feedback, onClose }) {
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-4 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm font-bold text-slate-700 hover:bg-slate-50 transition"
               >
                 Đóng

@@ -184,8 +184,10 @@ function FeedbackFormContent() {
     setErrorMessage("");
 
     try {
+      const selectedDeptObj = DEPARTMENTS.find((d) => d.value === formData.department);
       const payload = {
         ...formData,
+        departmentCode: selectedDeptObj?.code ?? formData.department,
         patientCode: isAnonymous ? null : formData.patientCode.trim() || null,
         isAnonymous,
         timestamp: new Date().toISOString(),
@@ -315,10 +317,10 @@ function FeedbackFormContent() {
 
       {/* 2. Main Content Area with Safe Margins 40-60px */}
       <div className="relative z-10 mx-auto w-full max-w-4xl flex-1 flex flex-col justify-center px-6 sm:px-12 md:px-16 py-6 sm:py-8">
-        
+
         {/* STEP 1: Department Selection (Two-step flow: Group -> Department) */}
         {currentStep === 1 && (
-          <div className="w-full animate-in fade-in-50 duration-200">
+          <div key="step-1" className="w-full animate-in fade-in-50 slide-in-from-bottom-2 duration-200">
             {/* Step 1A: Choose Department Group */}
             {!selectedGroup ? (
               <div className="space-y-6">
@@ -462,7 +464,7 @@ function FeedbackFormContent() {
 
         {/* STEP 2: 5 Quality Criteria Rating with Large Touch Stars */}
         {currentStep === 2 && (
-          <div className="w-full animate-in fade-in-50 duration-200">
+          <div key="step-2" className="w-full animate-in fade-in-50 slide-in-from-bottom-2 duration-200">
             <div className="text-center mb-5">
               <h1 className="text-2xl sm:text-3xl md:text-4xl font-black uppercase tracking-wide text-[#0f2852]">
                 2. ĐÁNH GIÁ 5 NHÓM TIÊU CHÍ CHẤT LƯỢNG
@@ -534,7 +536,7 @@ function FeedbackFormContent() {
                                 onClick={() => handleScoreChange(criterion.id, star)}
                                 aria-label={`${star} trên 5 sao`}
                                 aria-pressed={isSelected}
-                                className={`flex h-13 w-13 sm:h-15 sm:w-15 items-center justify-center rounded-2xl border-2 transition-all active:scale-90 ${
+                                className={`flex h-13 w-13 sm:h-15 sm:w-15 items-center justify-center rounded-2xl border-2 transition-all active:scale-95 ${
                                   isSelected
                                     ? "border-amber-400 bg-amber-400 text-slate-900 shadow-md scale-105"
                                     : isFilled
@@ -579,7 +581,7 @@ function FeedbackFormContent() {
 
         {/* STEP 3: NPS & Quick Feedback Tags */}
         {currentStep === 3 && (
-          <div className="w-full animate-in fade-in-50 duration-200">
+          <div key="step-3" className="w-full animate-in fade-in-50 slide-in-from-bottom-2 duration-200">
             <div className="text-center mb-5">
               <h1 className="text-2xl sm:text-3xl md:text-4xl font-black uppercase tracking-wide text-[#0f2852]">
                 3. MỨC ĐỘ SẴN SÀNG GIỚI THIỆU & GÓP Ý

@@ -20,12 +20,25 @@ export default function KioskIdleTimer() {
   const isHomePage = pathname === "/";
   const isAdmin = pathname?.startsWith("/admin");
 
+  const [isClosingWarning, setIsClosingWarning] = useState(false);
+
+  const closeWarning = useCallback((callback) => {
+    setIsClosingWarning(true);
+    setTimeout(() => {
+      setIsClosingWarning(false);
+      setIsWarningOpen(false);
+      setSecondsRemaining(COUNTDOWN_SECONDS);
+      if (callback) callback();
+    }, 180);
+  }, []);
+
   const resetIdleTimer = useCallback(() => {
     if (isAdmin) return;
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
 
     setIsWarningOpen(false);
+    setIsClosingWarning(false);
     setSecondsRemaining(COUNTDOWN_SECONDS);
 
     // Only start idle monitoring if on kiosk/survey screen, not on home screen or admin
@@ -97,7 +110,9 @@ export default function KioskIdleTimer() {
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="idle-warning-title"
-      className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200"
+      className={`fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md ${
+        isClosingWarning ? "animate-out fade-out duration-180" : "animate-in fade-in duration-200"
+      }`}
     >
       <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 sm:p-8 text-center shadow-2xl border-2 border-amber-300">
         <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-amber-50 text-amber-600 ring-8 ring-amber-100/60 animate-pulse">
@@ -148,10 +163,7 @@ export default function KioskIdleTimer() {
 
           <button
             type="button"
-            onClick={() => {
-              setIsWarningOpen(false);
-              router.push("/");
-            }}
+            onClick={() => closeWarning(() => router.push("/"))}
             className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-base active:scale-95 transition"
           >
             <RotateCcw size={18} />
