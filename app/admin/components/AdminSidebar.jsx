@@ -9,6 +9,7 @@ import {
   MessageSquareText,
   AlertTriangle,
   Building2,
+  ClipboardList,
   Sliders,
   Monitor,
   LogOut,
@@ -68,8 +69,15 @@ function AdminSidebarContent({ isOpen, onClose, onLogout, signingOut }) {
       ],
     },
     {
-      title: "Hệ thống & Khoa phòng",
+      title: "Khảo sát & Cấu hình",
       items: [
+        {
+          name: "Quản lý Bộ khảo sát",
+          href: "/admin/surveys",
+          icon: ClipboardList,
+          exact: false,
+          badge: null,
+        },
         {
           name: "Danh mục Khoa / Phòng",
           href: "/admin/departments",

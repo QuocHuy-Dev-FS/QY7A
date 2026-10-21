@@ -174,24 +174,26 @@ export function AdminProvider({ children }) {
       (f) => f.status === "pending" && Boolean(f.urgentFeedback && f.urgentFeedback.trim())
     ).length;
 
-    // Calculate Radar scores
+    // Radar chỉ tính phiếu có đủ c1..c5 (bộ mặc định hoặc bộ có ánh xạ tiêu chí)
+    const criteriaFeedbacks = feedbacks.filter(
+      (f) => f.scores && f.scores.c1_access != null && f.scores.c5_outcome != null
+    );
+    const criteriaCount = criteriaFeedbacks.length || 1;
     let c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0;
-    feedbacks.forEach((f) => {
-      if (f.scores) {
-        c1 += f.scores.c1_access || 0;
-        c2 += f.scores.c2_transparency || 0;
-        c3 += f.scores.c3_facilities || 0;
-        c4 += f.scores.c4_attitude || 0;
-        c5 += f.scores.c5_outcome || 0;
-      }
+    criteriaFeedbacks.forEach((f) => {
+      c1 += f.scores.c1_access || 0;
+      c2 += f.scores.c2_transparency || 0;
+      c3 += f.scores.c3_facilities || 0;
+      c4 += f.scores.c4_attitude || 0;
+      c5 += f.scores.c5_outcome || 0;
     });
 
     const radarData = [
-      { subject: "Tiếp cận & Chờ", score: Number((c1 / totalCount).toFixed(1)), fullMark: 5 },
-      { subject: "Minh bạch & Viện phí", score: Number((c2 / totalCount).toFixed(1)), fullMark: 5 },
-      { subject: "Cơ sở vật chất", score: Number((c3 / totalCount).toFixed(1)), fullMark: 5 },
-      { subject: "Thái độ quân y", score: Number((c4 / totalCount).toFixed(1)), fullMark: 5 },
-      { subject: "Hiệu quả điều trị", score: Number((c5 / totalCount).toFixed(1)), fullMark: 5 },
+      { subject: "Tiếp cận & Chờ", score: Number((c1 / criteriaCount).toFixed(1)), fullMark: 5 },
+      { subject: "Minh bạch & Viện phí", score: Number((c2 / criteriaCount).toFixed(1)), fullMark: 5 },
+      { subject: "Cơ sở vật chất", score: Number((c3 / criteriaCount).toFixed(1)), fullMark: 5 },
+      { subject: "Thái độ quân y", score: Number((c4 / criteriaCount).toFixed(1)), fullMark: 5 },
+      { subject: "Hiệu quả điều trị", score: Number((c5 / criteriaCount).toFixed(1)), fullMark: 5 },
     ];
 
     // Department Stats
@@ -323,6 +325,8 @@ export function AdminProvider({ children }) {
       "Đóng góp",
       "Phản ánh ưu tiên",
       "Trạng thái",
+      "Bộ khảo sát ID",
+      "Phiên bản",
     ];
 
     const rows = feedbacks.map((f) => [
@@ -336,6 +340,8 @@ export function AdminProvider({ children }) {
       `"${(f.comment || "").replace(/"/g, '""')}"`,
       `"${(f.urgentFeedback || "").replace(/"/g, '""')}"`,
       f.status === "resolved" ? "Đã xử lý" : "Chờ giải quyết",
+      f.surveyFormId || "legacy",
+      f.surveyFormVersion || "",
     ]);
 
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");

@@ -82,6 +82,11 @@ function mapFeedback(row, departmentMap) {
 
     status: row.status,
 
+    surveyFormId: row.survey_form_id ?? null,
+    survey_form_id: row.survey_form_id ?? null,
+    surveyFormVersion: row.survey_form_version ?? null,
+    answers: row.answers ?? null,
+
     createdAt: row.created_at,
     created_at: row.created_at,
     updatedAt: row.updated_at,
@@ -163,234 +168,236 @@ export async function GET(request) {
   }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseCommonFields(body) {
+  const patientCodeInput = body.patientCode ?? body.patient_code ?? null;
+  if (patientCodeInput !== null && typeof patientCodeInput !== "string") {
+    return { error: json({ success: false, message: "Mã bệnh nhân không hợp lệ." }, 400) };
+  }
+  const patientCode = typeof patientCodeInput === "string" ? patientCodeInput.trim() : "";
+  if (patientCode.length > 100) {
+    return { error: json({ success: false, message: "Mã bệnh nhân vượt quá 100 ký tự." }, 400) };
+  }
+  if (body.isAnonymous !== undefined && typeof body.isAnonymous !== "boolean") {
+    return { error: json({ success: false, message: "Giá trị ẩn danh không hợp lệ." }, 400) };
+  }
+  const isAnonymous = body.isAnonymous ?? !patientCode;
+  if (!isAnonymous && !patientCode) {
+    return { error: json({ success: false, message: "Vui lòng nhập mã bệnh nhân hoặc chọn gửi khảo sát ẩn danh." }, 400) };
+  }
+  const departmentInput =
+    typeof body.department === "string" ? body.department.trim()
+    : typeof body.departmentCode === "string" ? body.departmentCode.trim()
+    : typeof body.department_code === "string" ? body.department_code.trim()
+    : "";
+  if (!departmentInput) {
+    return { error: json({ success: false, message: "Vui lòng chọn khoa/phòng." }, 400) };
+  }
+  const comment = body.comment ?? "";
+  const urgentFeedback = body.urgentFeedback ?? body.urgent_feedback ?? "";
+  if (typeof comment !== "string") {
+    return { error: json({ success: false, message: "Nội dung góp ý không hợp lệ." }, 400) };
+  }
+  if (typeof urgentFeedback !== "string") {
+    return { error: json({ success: false, message: "Nội dung phản ánh không hợp lệ." }, 400) };
+  }
+  const trimmedComment = comment.trim();
+  const trimmedUrgentFeedback = urgentFeedback.trim();
+  if (trimmedComment.length > 5000) {
+    return { error: json({ success: false, message: "Góp ý không được vượt quá 5.000 ký tự." }, 400) };
+  }
+  if (trimmedUrgentFeedback.length > 3000) {
+    return { error: json({ success: false, message: "Phản ánh cần ưu tiên không được vượt quá 3.000 ký tự." }, 400) };
+  }
+  return { patientCode, isAnonymous, departmentInput, trimmedComment, trimmedUrgentFeedback };
+}
+
+async function resolveDepartment(supabase, departmentInput) {
+  const { data: departments, error } = await supabase
+    .from("departments")
+    .select("code, name")
+    .eq("is_active", true);
+  if (error) throw new Error("Không thể xác minh khoa/phòng.");
+
+  const inputNormalized = normalize(departmentInput);
+  const staticLabels = getDepartmentLabels().map(normalize);
+  const department = (departments || []).find(
+    (item) =>
+      normalize(item.code) === inputNormalized ||
+      normalize(item.name) === inputNormalized
+  );
+  if (
+    !department ||
+    (staticLabels.length > 0 &&
+      !staticLabels.includes(inputNormalized) &&
+      !staticLabels.includes(normalize(department.code)) &&
+      !staticLabels.includes(normalize(department.name)))
+  ) {
+    return null;
+  }
+  return department;
+}
+
 export async function POST(request) {
   const contentType = request.headers.get("content-type") || "";
 
   if (!contentType.toLowerCase().includes("application/json")) {
     return json(
-      {
-        success: false,
-        message: "Yêu cầu phải sử dụng Content-Type application/json.",
-      },
+      { success: false, message: "Yêu cầu phải sử dụng Content-Type application/json." },
       415
     );
   }
 
   let body;
-
   try {
     body = await request.json();
   } catch {
-    return json(
-      { success: false, message: "Dữ liệu JSON không hợp lệ." },
-      400
-    );
+    return json({ success: false, message: "Dữ liệu JSON không hợp lệ." }, 400);
   }
 
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return json(
-      { success: false, message: "Dữ liệu khảo sát không hợp lệ." },
-      400
-    );
+    return json({ success: false, message: "Dữ liệu khảo sát không hợp lệ." }, 400);
   }
 
-  const patientCodeInput = body.patientCode ?? body.patient_code ?? null;
+  const common = parseCommonFields(body);
+  if (common.error) return common.error;
+  const { patientCode, isAnonymous, departmentInput, trimmedComment, trimmedUrgentFeedback } = common;
 
-  if (
-    patientCodeInput !== null &&
-    typeof patientCodeInput !== "string"
-  ) {
-    return json(
-      { success: false, message: "Mã bệnh nhân không hợp lệ." },
-      400
-    );
-  }
-
-  const patientCode =
-    typeof patientCodeInput === "string"
-      ? patientCodeInput.trim()
-      : "";
-
-  if (patientCode.length > 100) {
-    return json(
-      { success: false, message: "Mã bệnh nhân vượt quá 100 ký tự." },
-      400
-    );
-  }
-
-  if (
-    body.isAnonymous !== undefined &&
-    typeof body.isAnonymous !== "boolean"
-  ) {
-    return json(
-      { success: false, message: "Giá trị ẩn danh không hợp lệ." },
-      400
-    );
-  }
-
-  const isAnonymous = body.isAnonymous ?? !patientCode;
-
-  if (!isAnonymous && !patientCode) {
-    return json(
-      {
-        success: false,
-        message:
-          "Vui lòng nhập mã bệnh nhân hoặc chọn gửi khảo sát ẩn danh.",
-      },
-      400
-    );
-  }
-
-  const departmentInput =
-    typeof body.department === "string"
-      ? body.department.trim()
-      : typeof body.departmentCode === "string"
-        ? body.departmentCode.trim()
-        : typeof body.department_code === "string"
-          ? body.department_code.trim()
-          : "";
-
-  if (!departmentInput) {
-    return json(
-      { success: false, message: "Vui lòng chọn khoa/phòng." },
-      400
-    );
-  }
-
-  const scores = body.scores;
-
-  if (
-    !scores ||
-    typeof scores !== "object" ||
-    Array.isArray(scores) ||
-    Object.keys(scores).length !== SCORE_KEYS.length ||
-    !SCORE_KEYS.every((key) =>
-      Object.prototype.hasOwnProperty.call(scores, key)
-    ) ||
-    !SCORE_KEYS.every(
-      (key) =>
-        Number.isInteger(scores[key]) &&
-        scores[key] >= 1 &&
-        scores[key] <= 5
-    )
-  ) {
-    return json(
-      {
-        success: false,
-        message: "Mỗi tiêu chí khảo sát phải có điểm nguyên từ 1 đến 5.",
-      },
-      400
-    );
-  }
-
-  const npsScore = body.npsScore ?? body.nps_score ?? body.nps;
-
-  if (
-    !Number.isInteger(npsScore) ||
-    npsScore < 0 ||
-    npsScore > 10
-  ) {
-    return json(
-      {
-        success: false,
-        message: "Điểm NPS phải là số nguyên từ 0 đến 10.",
-      },
-      400
-    );
-  }
-
-  const comment = body.comment ?? "";
-  const urgentFeedback =
-    body.urgentFeedback ?? body.urgent_feedback ?? "";
-
-  if (typeof comment !== "string") {
-    return json(
-      { success: false, message: "Nội dung góp ý không hợp lệ." },
-      400
-    );
-  }
-
-  if (typeof urgentFeedback !== "string") {
-    return json(
-      { success: false, message: "Nội dung phản ánh cần ưu tiên không hợp lệ." },
-      400
-    );
-  }
-
-  const trimmedComment = comment.trim();
-  const trimmedUrgentFeedback = urgentFeedback.trim();
-
-  if (trimmedComment.length > 5000) {
-    return json(
-      { success: false, message: "Góp ý không được vượt quá 5.000 ký tự." },
-      400
-    );
-  }
-
-  if (trimmedUrgentFeedback.length > 3000) {
-    return json(
-      {
-        success: false,
-        message:
-          "Phản ánh cần ưu tiên không được vượt quá 3.000 ký tự.",
-      },
-      400
-    );
-  }
+  const surveyFormId = body.surveyFormId ?? body.survey_form_id ?? null;
+  const isCustomForm = surveyFormId && UUID_RE.test(surveyFormId);
 
   try {
     const supabase = createAdminSupabaseClient();
 
-    const { data: departments, error: departmentError } =
-      await supabase
-        .from("departments")
-        .select("code, name")
-        .eq("is_active", true);
-
-    if (departmentError) {
-      console.error(
-        "Department lookup failed:",
-        departmentError.message
-      );
-
-      return json(
-        { success: false, message: "Không thể xác minh khoa/phòng." },
-        500
-      );
+    const department = await resolveDepartment(supabase, departmentInput);
+    if (!department) {
+      return json({ success: false, message: "Khoa/phòng không tồn tại hoặc hiện không hoạt động." }, 400);
     }
 
-    const inputNormalized = normalize(departmentInput);
+    const npsCategory = (nps) =>
+      nps >= 9 ? "Promoter" : nps >= 7 ? "Passive" : "Detractor";
 
-    const department = (departments || []).find(
-      (item) =>
-        normalize(item.code) === inputNormalized ||
-        normalize(item.name) === inputNormalized
-    );
+    // ── Nhánh 1: Bộ tùy chỉnh ──────────────────────────────────────────────
+    if (isCustomForm) {
+      const answers = body.answers ?? {};
+      if (typeof answers !== "object" || Array.isArray(answers)) {
+        return json({ success: false, message: "Câu trả lời không hợp lệ." }, 400);
+      }
 
-    const staticLabels = getDepartmentLabels().map(normalize);
+      const { data: form, error: formErr } = await supabase
+        .from("survey_forms")
+        .select("id, version, status")
+        .eq("id", surveyFormId)
+        .maybeSingle();
 
+      if (formErr || !form) {
+        return json({ success: false, message: "Bộ khảo sát không tồn tại." }, 400);
+      }
+      if (form.status === "archived") {
+        return json({ success: false, message: "Bộ khảo sát đã lưu trữ, không thể gửi phiếu." }, 400);
+      }
+
+      const { data: questions, error: qErr } = await supabase
+        .from("survey_questions")
+        .select("id, type, required, criteria_key, weight_csat")
+        .eq("form_id", surveyFormId);
+
+      if (qErr) return json({ success: false, message: "Không thể tải câu hỏi khảo sát." }, 500);
+
+      // Validate câu bắt buộc
+      for (const q of (questions || [])) {
+        if (q.required && (answers[q.id] === undefined || answers[q.id] === null || answers[q.id] === "")) {
+          return json({ success: false, message: "Vui lòng trả lời đầy đủ các câu hỏi bắt buộc." }, 400);
+        }
+      }
+
+      // Tính NPS
+      const npsQuestion = (questions || []).find((q) => q.type === "nps");
+      const npsScore = npsQuestion ? Number(answers[npsQuestion.id]) : null;
+      if (npsQuestion && (!Number.isInteger(npsScore) || npsScore < 0 || npsScore > 10)) {
+        return json({ success: false, message: "Điểm NPS phải là số nguyên từ 0 đến 10." }, 400);
+      }
+
+      // Tính CSAT theo trọng số câu loại star
+      const starQuestions = (questions || []).filter((q) => q.type === "star" && q.weight_csat);
+      let csatPercent = null;
+      if (starQuestions.length > 0) {
+        let weightedSum = 0;
+        let totalWeight = 0;
+        for (const q of starQuestions) {
+          const val = Number(answers[q.id]);
+          if (Number.isInteger(val) && val >= 1 && val <= 5) {
+            const w = Number(q.weight_csat);
+            weightedSum += (val / 5) * w;
+            totalWeight += w;
+          }
+        }
+        if (totalWeight > 0) csatPercent = Math.round((weightedSum / totalWeight) * 100);
+      }
+
+      // Map criteria_key → c1..c5 nếu có
+      const criteriaScores = {};
+      for (const q of (questions || [])) {
+        if (q.criteria_key && q.type === "star" && answers[q.id] !== undefined) {
+          criteriaScores[q.criteria_key] = Number(answers[q.id]);
+        }
+      }
+
+      const { data: inserted, error: insertError } = await supabase
+        .from("feedback")
+        .insert({
+          department_code: department.code,
+          patient_code: isAnonymous ? null : patientCode,
+          is_anonymous: isAnonymous,
+          survey_form_id: surveyFormId,
+          survey_form_version: form.version,
+          answers,
+          c1_access: criteriaScores["c1_access"] ?? null,
+          c2_transparency: criteriaScores["c2_transparency"] ?? null,
+          c3_facilities: criteriaScores["c3_facilities"] ?? null,
+          c4_attitude: criteriaScores["c4_attitude"] ?? null,
+          c5_outcome: criteriaScores["c5_outcome"] ?? null,
+          csat_percent: csatPercent,
+          nps_score: npsScore,
+          nps_category: npsScore !== null ? npsCategory(npsScore) : null,
+          comment: trimmedComment,
+          urgent_feedback: trimmedUrgentFeedback,
+          status: "pending",
+        })
+        .select("id")
+        .single();
+
+      if (insertError) {
+        console.error("Custom feedback insert failed:", insertError.message);
+        return json({ success: false, message: "Không thể lưu khảo sát. Vui lòng thử lại." }, 500);
+      }
+
+      return json({ success: true, persisted: true, message: "Cảm ơn bạn đã gửi đánh giá.", data: { id: inserted.id } }, 201);
+    }
+
+    // ── Nhánh 2: Bộ mặc định (legacy) ──────────────────────────────────────
+    const scores = body.scores;
     if (
-      !department ||
-      (staticLabels.length > 0 &&
-        !staticLabels.includes(inputNormalized) &&
-        !staticLabels.includes(normalize(department.code)) &&
-        !staticLabels.includes(normalize(department.name)))
+      !scores ||
+      typeof scores !== "object" ||
+      Array.isArray(scores) ||
+      Object.keys(scores).length !== SCORE_KEYS.length ||
+      !SCORE_KEYS.every((key) => Object.prototype.hasOwnProperty.call(scores, key)) ||
+      !SCORE_KEYS.every((key) => Number.isInteger(scores[key]) && scores[key] >= 1 && scores[key] <= 5)
     ) {
-      return json(
-        {
-          success: false,
-          message: "Khoa/phòng không tồn tại hoặc hiện không hoạt động.",
-        },
-        400
-      );
+      return json({ success: false, message: "Mỗi tiêu chí khảo sát phải có điểm nguyên từ 1 đến 5." }, 400);
+    }
+
+    const npsScore = body.npsScore ?? body.nps_score ?? body.nps;
+    if (!Number.isInteger(npsScore) || npsScore < 0 || npsScore > 10) {
+      return json({ success: false, message: "Điểm NPS phải là số nguyên từ 0 đến 10." }, 400);
     }
 
     const csatPercent = Math.round(
       ((scores.c1_access + scores.c2_transparency + scores.c3_facilities +
         scores.c4_attitude + scores.c5_outcome) / 25.0) * 100
     );
-    const npsCategory =
-      npsScore >= 9 ? "Promoter" : npsScore >= 7 ? "Passive" : "Detractor";
 
     const { data: inserted, error: insertError } = await supabase
       .from("feedback")
@@ -398,16 +405,14 @@ export async function POST(request) {
         department_code: department.code,
         patient_code: isAnonymous ? null : patientCode,
         is_anonymous: isAnonymous,
-
         c1_access: scores.c1_access,
         c2_transparency: scores.c2_transparency,
         c3_facilities: scores.c3_facilities,
         c4_attitude: scores.c4_attitude,
         c5_outcome: scores.c5_outcome,
-
         csat_percent: csatPercent,
         nps_score: npsScore,
-        nps_category: npsCategory,
+        nps_category: npsCategory(npsScore),
         comment: trimmedComment,
         urgent_feedback: trimmedUrgentFeedback,
         status: "pending",
@@ -417,38 +422,16 @@ export async function POST(request) {
 
     if (insertError) {
       console.error("Feedback insert failed:", insertError.message);
-
-      return json(
-        {
-          success: false,
-          message: "Không thể lưu khảo sát. Vui lòng thử lại.",
-        },
-        500
-      );
+      return json({ success: false, message: "Không thể lưu khảo sát. Vui lòng thử lại." }, 500);
     }
 
     return json(
-      {
-        success: true,
-        persisted: true,
-        message: "Cảm ơn bạn đã gửi đánh giá.",
-        data: { id: inserted.id },
-      },
+      { success: true, persisted: true, message: "Cảm ơn bạn đã gửi đánh giá.", data: { id: inserted.id } },
       201
     );
   } catch (error) {
-    console.error(
-      "POST /api/feedback failed:",
-      error instanceof Error ? error.message : "Unknown error"
-    );
-
-    return json(
-      {
-        success: false,
-        message: "Hệ thống chưa thể lưu khảo sát vào Supabase.",
-      },
-      500
-    );
+    console.error("POST /api/feedback failed:", error instanceof Error ? error.message : "Unknown error");
+    return json({ success: false, message: "Hệ thống chưa thể lưu khảo sát vào Supabase." }, 500);
   }
 }
 

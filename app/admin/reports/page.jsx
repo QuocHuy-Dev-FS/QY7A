@@ -20,9 +20,12 @@ import { CRITERIA_GROUPS, DEPARTMENTS } from "@/lib/hospitalData";
 export default function QualityReportsPage() {
   const { feedbacks, stats, exportCSV } = useAdmin();
 
-  // Compute criteria detail stats
+  // Compute criteria detail stats — chỉ tính phiếu có điểm tiêu chí
   const criteriaStats = useMemo(() => {
-    const total = feedbacks.length || 1;
+    const criteriaFeedbacks = feedbacks.filter(
+      (f) => f.scores?.c1_access != null && f.scores?.c5_outcome != null
+    );
+    const total = criteriaFeedbacks.length || 1;
     return CRITERIA_GROUPS.map((crit, idx) => {
       let sum = 0;
       let count5 = 0;
@@ -30,7 +33,7 @@ export default function QualityReportsPage() {
       let count3 = 0;
       let countBelow3 = 0;
 
-      feedbacks.forEach((f) => {
+      criteriaFeedbacks.forEach((f) => {
         const sc = f.scores?.[crit.id] ?? 5;
         sum += sc;
         if (sc === 5) count5++;
