@@ -24,6 +24,40 @@ CREATE TABLE IF NOT EXISTS public.survey_forms (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Upgrade path: nâng cấp bảng survey_forms từ schema cũ (có cột is_active)
+ALTER TABLE public.survey_forms
+  ADD COLUMN IF NOT EXISTS scope      text        NOT NULL DEFAULT 'hospital',
+  ADD COLUMN IF NOT EXISTS status     text        NOT NULL DEFAULT 'draft',
+  ADD COLUMN IF NOT EXISTS version    int         NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS greeting   text,
+  ADD COLUMN IF NOT EXISTS thank_you  text,
+  ADD COLUMN IF NOT EXISTS created_by uuid;
+
+-- Thêm check constraint cho status (bỏ qua nếu đã tồn tại)
+DO $$ BEGIN
+  ALTER TABLE public.survey_forms
+    ADD CONSTRAINT survey_forms_status_check
+    CHECK (status IN ('draft', 'active', 'archived'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Migrate dữ liệu: is_active = true → status = 'active'
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name   = 'survey_forms'
+      AND column_name  = 'is_active'
+  ) THEN
+    UPDATE public.survey_forms
+      SET status = 'active'
+      WHERE status = 'draft' AND is_active = true;
+  END IF;
+END $$;
+
+-- Xóa unique index cũ (dựa trên cột is_active) nếu tồn tại
+DROP INDEX IF EXISTS survey_forms_one_active;
+
 -- Mỗi scope chỉ được có một bộ đang active
 CREATE UNIQUE INDEX IF NOT EXISTS survey_forms_one_active_per_scope
   ON public.survey_forms (scope)

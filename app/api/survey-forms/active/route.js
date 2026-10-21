@@ -48,7 +48,13 @@ export async function GET(request) {
       .maybeSingle();
 
     if (formError) {
-      console.error("survey-forms/active GET failed:", formError.message);
+      const isAuthErr = /api.?key|invalid key|unauthorized/i.test(formError.message ?? "");
+      console.error(
+        "survey-forms/active GET failed:",
+        isAuthErr
+          ? "Supabase auth error — kiểm tra SUPABASE_SERVICE_ROLE_KEY trong .env.local"
+          : formError.message
+      );
       return json({ success: false, message: "Không thể tải bộ khảo sát." }, 500);
     }
 
@@ -60,14 +66,23 @@ export async function GET(request) {
       .from("survey_questions")
       .select("id, type, title, description, required, order_index, criteria_key, weight_csat, config")
       .eq("form_id", form.id)
-      .order("order_index", { ascending: true });
+      .order("order_index", { ascending: true })
+      .order("id", { ascending: true });
 
     if (qError) {
       console.error("survey_questions GET failed:", qError.message);
       return json({ success: false, message: "Không thể tải câu hỏi khảo sát." }, 500);
     }
 
-    return json({ success: true, data: sanitizeForm(form, questions || []) });
+    // Guard against duplicate rows from multiple seed runs (no unique constraint on order_index)
+    const seen = new Set();
+    const uniqueQuestions = (questions || []).filter((q) => {
+      if (seen.has(q.order_index)) return false;
+      seen.add(q.order_index);
+      return true;
+    });
+
+    return json({ success: true, data: sanitizeForm(form, uniqueQuestions) });
   } catch (err) {
     console.error("GET /api/survey-forms/active failed:", err?.message || err);
     return json({ success: false, message: "Lỗi máy chủ." }, 500);

@@ -101,6 +101,13 @@ async function getDepartmentMap(supabase) {
     .eq("is_active", true);
 
   if (error) {
+    const isAuthErr = /api.?key|invalid key|unauthorized/i.test(error.message ?? "");
+    console.error(
+      "getDepartmentMap DB error:",
+      isAuthErr
+        ? "Supabase auth error — kiểm tra SUPABASE_SERVICE_ROLE_KEY trong .env.local"
+        : error.message
+    );
     throw new Error("Không thể tải danh mục khoa/phòng.");
   }
 
@@ -168,7 +175,7 @@ export async function GET(request) {
   }
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseCommonFields(body) {
   const patientCodeInput = body.patientCode ?? body.patient_code ?? null;
@@ -218,24 +225,77 @@ async function resolveDepartment(supabase, departmentInput) {
     .from("departments")
     .select("code, name")
     .eq("is_active", true);
-  if (error) throw new Error("Không thể xác minh khoa/phòng.");
+  if (error) {
+    const isAuthErr = /api.?key|invalid key|unauthorized/i.test(error.message ?? "");
+    console.error(
+      "resolveDepartment DB error:",
+      isAuthErr
+        ? "Supabase auth error — kiểm tra SUPABASE_SERVICE_ROLE_KEY trong .env.local"
+        : error.message
+    );
+    throw new Error("Không thể xác minh khoa/phòng.");
+  }
 
   const inputNormalized = normalize(departmentInput);
-  const staticLabels = getDepartmentLabels().map(normalize);
-  const department = (departments || []).find(
-    (item) =>
-      normalize(item.code) === inputNormalized ||
-      normalize(item.name) === inputNormalized
-  );
-  if (
-    !department ||
-    (staticLabels.length > 0 &&
-      !staticLabels.includes(inputNormalized) &&
-      !staticLabels.includes(normalize(department.code)) &&
-      !staticLabels.includes(normalize(department.name)))
-  ) {
+  const list = departments || [];
+
+  // (a) Khớp chính xác code DB
+  let department = list.find((d) => normalize(d.code) === inputNormalized) || null;
+
+  // (b) Khớp phần trước "_" của code DB; trả null nếu nhiều hơn 1 kết quả (tránh nhập nhằng)
+  if (!department) {
+    const prefixMatches = list.filter(
+      (d) => normalize(d.code).split("_")[0] === inputNormalized
+    );
+    if (prefixMatches.length === 1) {
+      department = prefixMatches[0];
+    } else if (prefixMatches.length > 1) {
+      console.warn(
+        `resolveDepartment: input="${departmentInput}" khớp nhiều khoa qua tiền tố: [${prefixMatches.map((d) => d.code).join(",")}]`
+      );
+      return null;
+    }
+  }
+
+  // (c) Khớp tên đã chuẩn hóa
+  if (!department) {
+    department = list.find((d) => normalize(d.name) === inputNormalized) || null;
+  }
+
+  // (d) Ánh xạ tĩnh: mã ngắn (hospitalData.code) hoặc value → code trong DB
+  // Cần thiết khi DB dùng `value` làm code (KB→KhamBenh, CC→CapCuu, v.v.)
+  if (!department) {
+    const staticDept = DEPARTMENTS.find(
+      (d) =>
+        normalize(d.code) === inputNormalized ||
+        normalize(d.value) === inputNormalized
+    );
+    if (staticDept) {
+      const targetCode = normalize(staticDept.value);
+      department = list.find((d) => normalize(d.code) === targetCode) || null;
+    }
+  }
+
+  if (!department) {
+    console.warn(
+      `resolveDepartment: input="${departmentInput}" (normalized="${inputNormalized}") không tìm thấy trong ${list.length} khoa từ DB. DB codes=[${list.map((d) => d.code).join(",")}]`
+    );
     return null;
   }
+
+  // Cross-check: code trong DB phải khớp với ít nhất một mục trong hospitalData.js
+  const knownDepartment = DEPARTMENTS.some(
+    (d) =>
+      normalize(d.value) === normalize(department.code) ||
+      normalize(d.code) === normalize(department.code)
+  );
+  if (!knownDepartment) {
+    console.warn(
+      `resolveDepartment: department code="${department.code}" name="${department.name}" không khớp dữ liệu tĩnh hospitalData.js. Kiểm tra seed DB.`
+    );
+    return null;
+  }
+
   return department;
 }
 
@@ -275,9 +335,6 @@ export async function POST(request) {
       return json({ success: false, message: "Khoa/phòng không tồn tại hoặc hiện không hoạt động." }, 400);
     }
 
-    const npsCategory = (nps) =>
-      nps >= 9 ? "Promoter" : nps >= 7 ? "Passive" : "Detractor";
-
     // ── Nhánh 1: Bộ tùy chỉnh ──────────────────────────────────────────────
     if (isCustomForm) {
       const answers = body.answers ?? {};
@@ -298,15 +355,25 @@ export async function POST(request) {
         return json({ success: false, message: "Bộ khảo sát đã lưu trữ, không thể gửi phiếu." }, 400);
       }
 
-      const { data: questions, error: qErr } = await supabase
+      const { data: rawQuestions, error: qErr } = await supabase
         .from("survey_questions")
-        .select("id, type, required, criteria_key, weight_csat")
-        .eq("form_id", surveyFormId);
+        .select("id, type, required, order_index, criteria_key, weight_csat")
+        .eq("form_id", surveyFormId)
+        .order("order_index", { ascending: true })
+        .order("id", { ascending: true });
 
       if (qErr) return json({ success: false, message: "Không thể tải câu hỏi khảo sát." }, 500);
 
+      // Deduplicate by order_index (consistent with GET /api/survey-forms/active)
+      const seenIdx = new Set();
+      const questions = (rawQuestions || []).filter((q) => {
+        if (seenIdx.has(q.order_index)) return false;
+        seenIdx.add(q.order_index);
+        return true;
+      });
+
       // Validate câu bắt buộc
-      for (const q of (questions || [])) {
+      for (const q of questions) {
         if (q.required && (answers[q.id] === undefined || answers[q.id] === null || answers[q.id] === "")) {
           return json({ success: false, message: "Vui lòng trả lời đầy đủ các câu hỏi bắt buộc." }, 400);
         }
@@ -317,23 +384,6 @@ export async function POST(request) {
       const npsScore = npsQuestion ? Number(answers[npsQuestion.id]) : null;
       if (npsQuestion && (!Number.isInteger(npsScore) || npsScore < 0 || npsScore > 10)) {
         return json({ success: false, message: "Điểm NPS phải là số nguyên từ 0 đến 10." }, 400);
-      }
-
-      // Tính CSAT theo trọng số câu loại star
-      const starQuestions = (questions || []).filter((q) => q.type === "star" && q.weight_csat);
-      let csatPercent = null;
-      if (starQuestions.length > 0) {
-        let weightedSum = 0;
-        let totalWeight = 0;
-        for (const q of starQuestions) {
-          const val = Number(answers[q.id]);
-          if (Number.isInteger(val) && val >= 1 && val <= 5) {
-            const w = Number(q.weight_csat);
-            weightedSum += (val / 5) * w;
-            totalWeight += w;
-          }
-        }
-        if (totalWeight > 0) csatPercent = Math.round((weightedSum / totalWeight) * 100);
       }
 
       // Map criteria_key → c1..c5 nếu có
@@ -358,9 +408,7 @@ export async function POST(request) {
           c3_facilities: criteriaScores["c3_facilities"] ?? null,
           c4_attitude: criteriaScores["c4_attitude"] ?? null,
           c5_outcome: criteriaScores["c5_outcome"] ?? null,
-          csat_percent: csatPercent,
           nps_score: npsScore,
-          nps_category: npsScore !== null ? npsCategory(npsScore) : null,
           comment: trimmedComment,
           urgent_feedback: trimmedUrgentFeedback,
           status: "pending",
@@ -394,11 +442,6 @@ export async function POST(request) {
       return json({ success: false, message: "Điểm NPS phải là số nguyên từ 0 đến 10." }, 400);
     }
 
-    const csatPercent = Math.round(
-      ((scores.c1_access + scores.c2_transparency + scores.c3_facilities +
-        scores.c4_attitude + scores.c5_outcome) / 25.0) * 100
-    );
-
     const { data: inserted, error: insertError } = await supabase
       .from("feedback")
       .insert({
@@ -410,9 +453,7 @@ export async function POST(request) {
         c3_facilities: scores.c3_facilities,
         c4_attitude: scores.c4_attitude,
         c5_outcome: scores.c5_outcome,
-        csat_percent: csatPercent,
         nps_score: npsScore,
-        nps_category: npsCategory(npsScore),
         comment: trimmedComment,
         urgent_feedback: trimmedUrgentFeedback,
         status: "pending",
